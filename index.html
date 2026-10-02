@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DLD Water Level BCD Simulation</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Inter Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              900: '#0c4a6e',
+            },
+            logic: {
+              high: '#22c55e', // Green
+              low: '#475569',  // Dark slate
+              bcd: '#3b82f6',  // Blue
+              seg: '#ef4444',  // Red LED
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .glow-led-red {
+      box-shadow: 0 0 12px #ef4444, 0 0 20px #ef4444;
+    }
+    .glow-led-green {
+      box-shadow: 0 0 10px #22c55e, 0 0 16px #22c55e;
+    }
+    .glow-led-blue {
+      box-shadow: 0 0 10px #3b82f6, 0 0 16px #3b82f6;
+    }
+    .segment-off {
+      fill: #1e293b;
+      opacity: 0.2;
+    }
+    .segment-on {
+      fill: #ef4444;
+      filter: drop-shadow(0px 0px 6px #ef4444);
+    }
+    /* Dynamic pulsing wires */
+    @keyframes pulseWire {
+      0% { stroke-dashoffset: 20; }
+      100% { stroke-dashoffset: 0; }
+    }
+    .wire-active-flow {
+      stroke-dasharray: 6 4;
+      animation: pulseWire 0.6s linear infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="p-2 bg-brand-500/20 rounded-xl border border-brand-500/30 text-brand-500">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            Water Level BCD Circuit Simulator
+            <span class="text-xs font-mono bg-brand-500/20 text-brand-400 border border-brand-500/30 px-2 py-0.5 rounded-full">DLD Real-Time</span>
+          </h1>
+          <p class="text-xs text-slate-400">Decimal-to-BCD Priority Encoding & 7-Segment Display Signal Pipeline</p>
+        </div>
+      </div>
+
+      <!-- Quick Controls -->
+      <div class="flex items-center space-x-2">
+        <button id="btnAutoFill" onclick="toggleAutoFill()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-emerald-900/30">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span id="autoFillLabel">Auto Cycle</span>
+        </button>
+        <button id="btnSoundToggle" onclick="toggleSound()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1.5">
+          <svg id="soundIcon" class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
+          <span id="soundLabel">Mute Audio</span>
+        </button>
+        <button onclick="resetSimulation()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          Reset
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6 flex-1 w-full">
+
+    <!-- Top Dashboard Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      
+      <!-- Panel 1: Water Tank Simulation (Col 4) -->
+      <div class="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-xl relative overflow-hidden">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+              Water Container & Sensors
+            </h2>
+            <span id="tankVolumeText" class="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 border border-cyan-800/50 px-2 py-0.5 rounded">
+              Level: 0 (Empty)
+            </span>
+          </div>
+          
+          <!-- Tank Visualization Container -->
+          <div class="relative w-full h-80 bg-slate-950 rounded-xl border-2 border-slate-700 p-2 overflow-hidden flex flex-col justify-end">
+            
+            <!-- Pipe Controls Visual -->
+            <div id="inletFlow" class="absolute top-0 left-6 w-3 h-10 bg-cyan-500/20 border-x border-cyan-500/40 hidden">
+              <div class="w-full h-full bg-cyan-400/60 animate-pulse"></div>
+            </div>
+            
+            <!-- Water Canvas -->
+            <canvas id="waterCanvas" class="w-full h-full absolute inset-0 z-0"></canvas>
+            
+            <!-- Sensor Probes Overlay -->
+            <div id="probesContainer" class="absolute inset-0 z-10 flex flex-col justify-between py-4 px-6 pointer-events-none">
+              <!-- Probes populated dynamically S9 down to S0 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tank Manual Controls -->
+        <div class="mt-4 space-y-3 pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+            <label for="waterSlider" class="font-medium">Water Height Control:</label>
+            <span id="sliderVal" class="font-mono text-brand-400">0 / 9</span>
+          </div>
+          <input 
+            type="range" 
+            id="waterSlider" 
+            min="0" 
+            max="9" 
+            value="0" 
+            step="1"
+            oninput="setWaterLevel(parseInt(this.value))"
+            class="w-full accent-cyan-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+          />
+
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="changeWaterLevel(-1)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1">
+              <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+              Drain (-1)
+            </button>
+            <button onclick="changeWaterLevel(1)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1">
+              <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+              Fill (+1)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: Live Circuit Wiring Diagram (Col 5) -->
+      <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col shadow-xl relative overflow-hidden">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Real-Time Wire Schematics & Chips
+          </h2>
+          <span class="text-[11px] font-mono text-slate-400">Logic HIGH = 5V | LOW = 0V</span>
+        </div>
+
+        <!-- SVG Wiring Canvas -->
+        <div class="flex-1 min-h-[340px] bg-slate-950 rounded-xl border border-slate-800 p-2 relative flex items-center justify-center">
+          <svg id="circuitSvg" class="w-full h-full absolute inset-0" viewBox="0 0 500 340">
+            <!-- Wires and Chips rendered via JS for accurate real-time state -->
+          </svg>
+        </div>
+
+        <div class="mt-3 flex items-center justify-between text-xs text-slate-400 px-1">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-1 bg-emerald-500 rounded"></span><span>Active HIGH Wire</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-1 bg-slate-700 rounded"></span><span>Inactive LOW Wire</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-1 bg-blue-500 rounded"></span><span>BCD Bus</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 3: Digital Displays & BCD Outputs (Col 3) -->
+      <div class="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-xl">
+        <div>
+          <h2 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+            <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+            7-Segment Display & BCD
+          </h2>
+
+          <!-- Realistic 7-Segment SVG -->
+          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col items-center justify-center relative">
+            <svg class="w-32 h-44" viewBox="0 0 100 140">
+              <!-- Segment Path Definitions -->
+              <!-- Segment a -->
+              <polygon id="seg-a" points="20,12 80,12 72,22 28,22" class="segment-off transition-all duration-200" />
+              <!-- Segment b -->
+              <polygon id="seg-b" points="82,14 90,22 82,66 74,58" class="segment-off transition-all duration-200" />
+              <!-- Segment c -->
+              <polygon id="seg-c" points="82,72 90,80 82,124 74,116" class="segment-off transition-all duration-200" />
+              <!-- Segment d -->
+              <polygon id="seg-d" points="20,126 80,126 72,116 28,116" class="segment-off transition-all duration-200" />
+              <!-- Segment e -->
+              <polygon id="seg-e" points="18,72 26,58 26,116 18,124" class="segment-off transition-all duration-200" />
+              <!-- Segment f -->
+              <polygon id="seg-f" points="18,14 26,22 26,66 18,58" class="segment-off transition-all duration-200" />
+              <!-- Segment g -->
+              <polygon id="seg-g" points="20,69 28,63 72,63 80,69 72,75 28,75" class="segment-off transition-all duration-200" />
+            </svg>
+            
+            <div class="mt-2 text-[11px] font-mono text-slate-400 flex gap-1">
+              Segments: <span id="segmentBitsText" class="text-red-400 font-bold">a b c d e f g</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4-Bit BCD Binary LEDs -->
+        <div class="mt-4 bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+          <div class="text-xs font-semibold text-slate-300 flex justify-between items-center">
+            <span>BCD Output Bits:</span>
+            <span id="bcdHexVal" class="font-mono text-blue-400">0x0</span>
+          </div>
+          
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <!-- Q3 (8) -->
+            <div class="flex flex-col items-center">
+              <span class="text-[10px] text-slate-500 font-mono">Q3 (8)</span>
+              <div id="ledQ3" class="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 mt-1 transition-all"></div>
+              <span id="bitQ3" class="text-xs font-mono font-bold text-slate-400 mt-0.5">0</span>
+            </div>
+            <!-- Q2 (4) -->
+            <div class="flex flex-col items-center">
+              <span class="text-[10px] text-slate-500 font-mono">Q2 (4)</span>
+              <div id="ledQ2" class="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 mt-1 transition-all"></div>
+              <span id="bitQ2" class="text-xs font-mono font-bold text-slate-400 mt-0.5">0</span>
+            </div>
+            <!-- Q1 (2) -->
+            <div class="flex flex-col items-center">
+              <span class="text-[10px] text-slate-500 font-mono">Q1 (2)</span>
+              <div id="ledQ1" class="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 mt-1 transition-all"></div>
+              <span id="bitQ1" class="text-xs font-mono font-bold text-slate-400 mt-0.5">0</span>
+            </div>
+            <!-- Q0 (1) -->
+            <div class="flex flex-col items-center">
+              <span class="text-[10px] text-slate-500 font-mono">Q0 (1)</span>
+              <div id="ledQ0" class="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 mt-1 transition-all"></div>
+              <span id="bitQ0" class="text-xs font-mono font-bold text-slate-400 mt-0.5">0</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Bottom Navigation Tabs: Truth Table & DLD Theory -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-2">
+        <div class="flex items-center space-x-2">
+          <button onclick="switchTab('truthTable')" id="tabBtnTruth" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-500 text-white transition">
+            Priority Truth Table
+          </button>
+          <button onclick="switchTab('logicGates')" id="tabBtnGates" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+            Logic & Boolean Equations
+          </button>
+          <button onclick="switchTab('oscilloscope')" id="tabBtnWave" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+            Signal Waveform Oscilloscope
+          </button>
+        </div>
+
+        <div class="text-xs text-slate-400 font-mono">
+          Priority Chip: <span class="text-amber-400">74HC147 / Priority Encoder</span> | Decoder: <span class="text-amber-400">74HC4511</span>
+        </div>
+      </div>
+
+      <!-- Tab Content 1: Priority Truth Table -->
+      <div id="tabTruthTable" class="block overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono border-collapse">
+          <thead>
+            <tr class="bg-slate-950 text-slate-400 border-b border-slate-800">
+              <th class="p-2">Water Level</th>
+              <th class="p-2 border-l border-slate-800">Active Sensor Input</th>
+              <th class="p-2 border-l border-slate-800 text-blue-400">BCD [Q3 Q2 Q1 Q0]</th>
+              <th class="p-2 border-l border-slate-800 text-red-400">7-Segment [a b c d e f g]</th>
+              <th class="p-2 border-l border-slate-800">Display Output</th>
+            </tr>
+          </thead>
+          <tbody id="truthTableBody" class="divide-y divide-slate-800/60">
+            <!-- Dynamically highlighted rows via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab Content 2: Logic Equations -->
+      <div id="tabLogicGates" class="hidden space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+            <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider text-brand-400">Decimal to BCD Priority Logic Equations</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              When water touches higher sensors, lower sensors remain submerged. The priority encoder takes the <strong>highest active input index</strong> and suppresses lower inputs.
+            </p>
+            <div class="bg-slate-900 p-3 rounded-lg font-mono text-xs text-blue-300 space-y-1">
+              <div>Q0 (1) = S1·S2'·S4'·S6'·S8' + S3·S4'·S6'·S8' + S5·S6'·S8' + S7·S8' + S9</div>
+              <div>Q1 (2) = S2·S4'·S5'·S8'·S9' + S3·S4'·S5'·S8'·S9' + S6·S8'·S9' + S7·S8'·S9'</div>
+              <div>Q2 (4) = S4·S8'·S9' + S5·S8'·S9' + S6·S8'·S9' + S7·S8'·S9'</div>
+              <div>Q3 (8) = S8 + S9</div>
+            </div>
+          </div>
+
+          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+            <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider text-red-400">BCD to 7-Segment Decoder Functions</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              The 74HC4511 converts 4-bit BCD into 7 individual LED segment control signals ($a$ through $g$).
+            </p>
+            <div class="bg-slate-900 p-3 rounded-lg font-mono text-xs text-red-300 space-y-1">
+              <div>a = Q3 + Q1 + (Q2 ⊙ Q0)</div>
+              <div>b = Q2' + (Q1 ⊙ Q0)</div>
+              <div>c = Q2 + Q1' + Q0</div>
+              <div>d = Q3 + (Q2' · Q0') + (Q1 · Q0') + (Q2' · Q1) + (Q2 · Q1' · Q0)</div>
+              <div>e = (Q2' · Q0') + (Q1 · Q0')</div>
+              <div>f = Q3 + Q2 + (Q1' · Q0')</div>
+              <div>g = Q3 + (Q2 · Q1') + (Q2' · Q1) + (Q1 · Q0')</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Content 3: Real-Time Oscilloscope -->
+      <div id="tabOscilloscope" class="hidden">
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col space-y-2">
+          <div class="flex justify-between items-center text-xs text-slate-400">
+            <span>Live Logic Transitions (Q3 - Q0 over time)</span>
+            <span class="text-emerald-400 font-mono">Sampling: Real-time</span>
+          </div>
+          <canvas id="scopeCanvas" class="w-full h-36 bg-slate-900 rounded-lg border border-slate-800"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 bg-slate-900/60 py-3 text-center text-xs text-slate-500">
+    Digital Logic Design Interactive Simulation &bull; Water Level Sensor to BCD & 7-Segment Decoder
+  </footer>
+
+  <!-- Simulation Logic Script -->
+  <script>
+    // --- Application State ---
+    let currentLevel = 0; // Water level 0 to 9
+    let autoFillActive = false;
+    let autoFillDirection = 1; // 1 = filling, -1 = draining
+    let soundEnabled = false;
+    let audioCtx = null;
+
+    // Fault injection map (false = operational, true = faulty/broken sensor)
+    let faultMap = new Array(10).fill(false);
+
+    // Waveform history for scope
+    const scopeHistory = [];
+    const maxScopePoints = 120;
+
+    // Truth Table Definition: Level -> Sensor Inputs -> BCD -> Segments (a-g) -> Display Char
+    const truthTableData = [
+      { level: 0, inputs: "Ground Only", bcd: [0,0,0,0], segs: [1,1,1,1,1,1,0], hex: "0", display: "0" },
+      { level: 1, inputs: "S1",          bcd: [0,0,0,1], segs: [0,1,1,0,0,0,0], hex: "1", display: "1" },
+      { level: 2, inputs: "S1, S2",      bcd: [0,0,1,0], segs: [1,1,0,1,1,0,1], hex: "2", display: "2" },
+      { level: 3, inputs: "S1..S3",      bcd: [0,0,1,1], segs: [1,1,1,1,0,0,1], hex: "3", display: "3" },
+      { level: 4, inputs: "S1..S4",      bcd: [0,1,0,0], segs: [0,1,1,0,0,1,1], hex: "4", display: "4" },
+      { level: 5, inputs: "S1..S5",      bcd: [0,1,0,1], segs: [1,0,1,1,0,1,1], hex: "5", display: "5" },
+      { level: 6, inputs: "S1..S6",      bcd: [0,1,1,0], segs: [1,0,1,1,1,1,1], hex: "6", display: "6" },
+      { level: 7, inputs: "S1..S7",      bcd: [0,1,1,1], segs: [1,1,1,0,0,0,0], hex: "7", display: "7" },
+      { level: 8, inputs: "S1..S8",      bcd: [1,0,0,0], segs: [1,1,1,1,1,1,1], hex: "8", display: "8" },
+      { level: 9, inputs: "S1..S9",      bcd: [1,0,0,1], segs: [1,1,1,1,0,1,1], hex: "9", display: "9" }
+    ];
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initProbesUI();
+      initTruthTableUI();
+      renderCircuitSVG();
+      updateSimulation();
+      
+      // Start Animation Loop
+      requestAnimationFrame(animLoop);
+
+      // Auto cycle interval
+      setInterval(() => {
+        if (autoFillActive) {
+          if (currentLevel >= 9) autoFillDirection = -1;
+          if (currentLevel <= 0) autoFillDirection = 1;
+          setWaterLevel(currentLevel + autoFillDirection);
+        }
+      }, 1200);
+    });
+
+    // --- Audio Sound Synthesis ---
+    function playBeep(freq = 440, duration = 0.08) {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) { console.error(e); }
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      document.getElementById('soundLabel').innerText = soundEnabled ? "Sound ON" : "Mute Audio";
+      document.getElementById('btnSoundToggle').classList.toggle('bg-brand-600', soundEnabled);
+      if (soundEnabled) playBeep(523.25, 0.1);
+    }
+
+    // --- Dynamic UI Builders ---
+    function initProbesUI() {
+      const container = document.getElementById('probesContainer');
+      container.innerHTML = '';
+
+      // Ground probe at bottom
+      for (let i = 9; i >= 0; i--) {
+        const probeDiv = document.createElement('div');
+        probeDiv.className = "flex items-center justify-between text-xs font-mono select-none pointer-events-auto cursor-pointer group";
+        probeDiv.onclick = () => toggleFault(i);
+        probeDiv.title = i === 0 ? "Ground Reference Probe" : `Click to simulate fault/break on Sensor S${i}`;
+
+        probeDiv.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <div id="probeDot-${i}" class="w-3 h-3 rounded-full bg-slate-700 border border-slate-600 transition-all duration-300"></div>
+            <span class="text-[11px] font-bold text-slate-300 group-hover:text-cyan-300 transition">${i === 0 ? 'GND' : 'S' + i}</span>
+          </div>
+          <span id="probeStatus-${i}" class="text-[10px] text-slate-500 font-mono">0V</span>
+        `;
+        container.appendChild(probeDiv);
+      }
+    }
+
+    function toggleFault(sensorIdx) {
+      if (sensorIdx === 0) return; // Ground cannot fault
+      faultMap[sensorIdx] = !faultMap[sensorIdx];
+      updateSimulation();
+      playBeep(250, 0.1);
+    }
+
+    function initTruthTableUI() {
+      const tbody = document.getElementById('truthTableBody');
+      tbody.innerHTML = '';
+
+      truthTableData.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.id = `tt-row-${row.level}`;
+        tr.className = "transition-colors duration-200 hover:bg-slate-800/40";
+        tr.innerHTML = `
+          <td class="p-2 font-bold text-slate-300">Level ${row.level} ${row.level === 0 ? '(Empty)' : row.level === 9 ? '(Full)' : ''}</td>
+          <td class="p-2 border-l border-slate-800 text-slate-400">${row.inputs}</td>
+          <td class="p-2 border-l border-slate-800 text-blue-400 font-bold">${row.bcd.join('')}</td>
+          <td class="p-2 border-l border-slate-800 text-red-400 font-bold">${row.segs.join(' ')}</td>
+          <td class="p-2 border-l border-slate-800 text-emerald-400 font-bold text-center">${row.display}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // --- Simulation State Calculations ---
+    function setWaterLevel(val) {
+      currentLevel = Math.max(0, Math.min(9, val));
+      document.getElementById('waterSlider').value = currentLevel;
+      document.getElementById('sliderVal').innerText = `${currentLevel} / 9`;
+      updateSimulation();
+      playBeep(300 + currentLevel * 50, 0.05);
+    }
+
+    function changeWaterLevel(delta) {
+      setWaterLevel(currentLevel + delta);
+    }
+
+    function toggleAutoFill() {
+      autoFillActive = !autoFillActive;
+      document.getElementById('autoFillLabel').innerText = autoFillActive ? "Stop Auto" : "Auto Cycle";
+      document.getElementById('btnAutoFill').classList.toggle('bg-amber-600', autoFillActive);
+      document.getElementById('btnAutoFill').classList.toggle('bg-emerald-600', !autoFillActive);
+    }
+
+    function resetSimulation() {
+      autoFillActive = false;
+      document.getElementById('autoFillLabel').innerText = "Auto Cycle";
+      document.getElementById('btnAutoFill').className = "px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-emerald-900/30";
+      faultMap.fill(false);
+      setWaterLevel(0);
+    }
+
+    function getEffectivePriorityLevel() {
+      // Find highest submerged sensor that is not faulted
+      let highestActive = 0;
+      for (let i = 1; i <= currentLevel; i++) {
+        if (!faultMap[i]) {
+          highestActive = i;
+        }
+      }
+      return highestActive;
+    }
+
+    function updateSimulation() {
+      const activePriorityLevel = getEffectivePriorityLevel();
+      const activeData = truthTableData[activePriorityLevel];
+
+      // 1. Update Tank Text & Probes
+      document.getElementById('tankVolumeText').innerText = `Level: ${currentLevel} (${currentLevel === 0 ? 'Empty' : currentLevel === 9 ? 'FULL' : (currentLevel * 11.1).toFixed(0) + '%'})`;
+      
+      for (let i = 0; i <= 9; i++) {
+        const dot = document.getElementById(`probeDot-${i}`);
+        const status = document.getElementById(`probeStatus-${i}`);
+        const isSubmerged = i <= currentLevel;
+        const isFaulted = faultMap[i];
+
+        if (isFaulted) {
+          dot.className = "w-3 h-3 rounded-full bg-red-600 border border-red-400 glow-led-red";
+          status.innerText = "FAULT";
+          status.className = "text-[10px] text-red-400 font-bold font-mono";
+        } else if (isSubmerged) {
+          dot.className = "w-3 h-3 rounded-full bg-cyan-400 border border-cyan-200 glow-led-blue";
+          status.innerText = "5V HIGH";
+          status.className = "text-[10px] text-cyan-300 font-bold font-mono";
+        } else {
+          dot.className = "w-3 h-3 rounded-full bg-slate-800 border border-slate-700";
+          status.innerText = "0V LOW";
+          status.className = "text-[10px] text-slate-500 font-mono";
+        }
+      }
+
+      // 2. Update BCD Output Bit LEDs
+      const bcd = activeData.bcd; // [Q3, Q2, Q1, Q0]
+      const leds = [
+        { led: 'ledQ3', bit: 'bitQ3', val: bcd[0] },
+        { led: 'ledQ2', bit: 'bitQ2', val: bcd[1] },
+        { led: 'ledQ1', bit: 'bitQ1', val: bcd[2] },
+        { led: 'ledQ0', bit: 'bitQ0', val: bcd[3] }
+      ];
+
+      leds.forEach(item => {
+        const ledEl = document.getElementById(item.led);
+        const bitEl = document.getElementById(item.bit);
+        bitEl.innerText = item.val;
+
+        if (item.val === 1) {
+          ledEl.className = "w-6 h-6 rounded-full bg-blue-500 border border-blue-300 glow-led-blue mt-1 transition-all";
+          bitEl.className = "text-xs font-mono font-bold text-blue-400 mt-0.5";
+        } else {
+          ledEl.className = "w-6 h-6 rounded-full bg-slate-800 border border-slate-700 mt-1 transition-all";
+          bitEl.className = "text-xs font-mono font-bold text-slate-500 mt-0.5";
+        }
+      });
+
+      document.getElementById('bcdHexVal').innerText = `0x${activeData.hex}`;
+
+      // 3. Update 7-Segment Display
+      const segNames = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+      activeData.segs.forEach((state, idx) => {
+        const segEl = document.getElementById(`seg-${segNames[idx]}`);
+        if (state === 1) {
+          segEl.setAttribute('class', 'segment-on transition-all duration-200');
+        } else {
+          segEl.setAttribute('class', 'segment-off transition-all duration-200');
+        }
+      });
+
+      document.getElementById('segmentBitsText').innerText = activeData.segs.map((s, i) => s ? segNames[i] : '.').join(' ');
+
+      // 4. Update Truth Table Active Row Highlight
+      for (let i = 0; i <= 9; i++) {
+        const tr = document.getElementById(`tt-row-${i}`);
+        if (i === activePriorityLevel) {
+          tr.className = "bg-brand-500/20 text-white font-bold border-l-4 border-brand-500";
+        } else {
+          tr.className = "transition-colors duration-200 hover:bg-slate-800/40 text-slate-400";
+        }
+      }
+
+      // 5. Update SVG Circuit Active Wires
+      updateCircuitWires(activePriorityLevel, bcd, activeData.segs);
+
+      // Record scope data point
+      scopeHistory.push([...bcd, activePriorityLevel]);
+      if (scopeHistory.length > maxScopePoints) scopeHistory.shift();
+    }
+
+    // --- Dynamic SVG Wire Schematics ---
+    function renderCircuitSVG() {
+      const svg = document.getElementById('circuitSvg');
+      svg.innerHTML = `
+        <!-- Background Logic Chips -->
+        <!-- Priority Encoder 74HC147 -->
+        <rect x="120" y="40" width="100" height="260" rx="8" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+        <text x="170" y="65" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="bold" font-family="monospace">74HC147</text>
+        <text x="170" y="78" text-anchor="middle" fill="#64748b" font-size="9" font-family="sans-serif">Priority Encoder</text>
+
+        <!-- BCD Decoder 74HC4511 -->
+        <rect x="300" y="60" width="100" height="220" rx="8" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+        <text x="350" y="85" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="bold" font-family="monospace">74HC4511</text>
+        <text x="350" y="98" text-anchor="middle" fill="#64748b" font-size="9" font-family="sans-serif">BCD 7-Seg Decoder</text>
+
+        <!-- Dynamic Wires Group -->
+        <g id="svgWiresGroup"></g>
+      `;
+    }
+
+    function updateCircuitWires(priorityLevel, bcdBits, segBits) {
+      const g = document.getElementById('svgWiresGroup');
+      if (!g) return;
+      g.innerHTML = '';
+
+      // Draw input lines S1 to S9 into Encoder
+      for (let i = 1; i <= 9; i++) {
+        const yPos = 85 + (i - 1) * 22;
+        const isActive = (i <= currentLevel) && !faultMap[i];
+        const isPriority = (i === priorityLevel);
+
+        const color = isPriority ? '#22c55e' : (isActive ? '#0284c7' : '#334155');
+        const strokeWidth = isPriority ? '2.5' : '1.5';
+
+        // Wire line from left edge to 74HC147
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M 20 ${yPos} L 120 ${yPos}`);
+        path.setAttribute('stroke', color);
+        path.setAttribute('stroke-width', strokeWidth);
+        path.setAttribute('fill', 'none');
+        if (isPriority) path.setAttribute('class', 'wire-active-flow');
+        g.appendChild(path);
+
+        // Pin Label
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', '112');
+        text.setAttribute('y', yPos + 3);
+        text.setAttribute('text-anchor', 'end');
+        text.setAttribute('fill', isPriority ? '#4ade80' : '#64748b');
+        text.setAttribute('font-size', '9');
+        text.setAttribute('font-family', 'monospace');
+        text.textContent = `S${i}`;
+        g.appendChild(text);
+      }
+
+      // Draw 4-Bit BCD Bus lines from Encoder (120-220) to Decoder (300-400)
+      const bcdY = [110, 150, 190, 230];
+      const bcdLabels = ['Q3', 'Q2', 'Q1', 'Q0'];
+
+      bcdBits.forEach((bit, idx) => {
+        const y = bcdY[idx];
+        const color = bit === 1 ? '#3b82f6' : '#334155';
+        const strokeWidth = bit === 1 ? '2.5' : '1.5';
+
+        // Encoder Output Pin Label
+        const txtOut = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txtOut.setAttribute('x', '228');
+        txtOut.setAttribute('y', y + 3);
+        txtOut.setAttribute('fill', bit === 1 ? '#60a5fa' : '#64748b');
+        txtOut.setAttribute('font-size', '9');
+        txtOut.setAttribute('font-family', 'monospace');
+        txtOut.textContent = bcdLabels[idx];
+        g.appendChild(txtOut);
+
+        // BCD Trace
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M 220 ${y} L 300 ${y}`);
+        path.setAttribute('stroke', color);
+        path.setAttribute('stroke-width', strokeWidth);
+        path.setAttribute('fill', 'none');
+        if (bit === 1) path.setAttribute('class', 'wire-active-flow');
+        g.appendChild(path);
+      });
+
+      // Draw 7 Segment Output Lines from 74HC4511 (300-400) to Right Display Output
+      const segNames = ['a','b','c','d','e','f','g'];
+      segBits.forEach((bit, idx) => {
+        const y = 100 + idx * 24;
+        const color = bit === 1 ? '#ef4444' : '#334155';
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M 400 ${y} L 480 ${y}`);
+        path.setAttribute('stroke', color);
+        path.setAttribute('stroke-width', bit === 1 ? '2' : '1');
+        path.setAttribute('fill', 'none');
+        if (bit === 1) path.setAttribute('class', 'wire-active-flow');
+        g.appendChild(path);
+
+        const txtSeg = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txtSeg.setAttribute('x', '405');
+        txtSeg.setAttribute('y', y - 2);
+        txtSeg.setAttribute('fill', bit === 1 ? '#f87171' : '#64748b');
+        txtSeg.setAttribute('font-size', '8');
+        txtSeg.setAttribute('font-family', 'monospace');
+        txtSeg.textContent = segNames[idx];
+        g.appendChild(txtSeg);
+      });
+    }
+
+    // --- Tab Switcher ---
+    function switchTab(tabId) {
+      document.getElementById('tabTruthTable').className = tabId === 'truthTable' ? 'block' : 'hidden';
+      document.getElementById('tabLogicGates').className = tabId === 'logicGates' ? 'block' : 'hidden';
+      document.getElementById('tabOscilloscope').className = tabId === 'oscilloscope' ? 'block' : 'hidden';
+
+      document.getElementById('tabBtnTruth').className = tabId === 'truthTable' 
+        ? 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-500 text-white transition'
+        : 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+
+      document.getElementById('tabBtnGates').className = tabId === 'logicGates' 
+        ? 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-500 text-white transition'
+        : 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+
+      document.getElementById('tabBtnWave').className = tabId === 'oscilloscope' 
+        ? 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-500 text-white transition'
+        : 'px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+    }
+
+    // --- Animation Loop (Canvas Fluid & Scope) ---
+    let waveOffset = 0;
+    function animLoop() {
+      renderWaterCanvas();
+      renderOscilloscope();
+      waveOffset += 0.08;
+      requestAnimationFrame(animLoop);
+    }
+
+    function renderWaterCanvas() {
+      const canvas = document.getElementById('waterCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width = canvas.clientWidth;
+      const height = canvas.height = canvas.clientHeight;
+
+      ctx.clearRect(0, 0, width, height);
+
+      if (currentLevel === 0) return;
+
+      // Height ratio based on currentLevel (0 - 9)
+      const fillRatio = currentLevel / 9;
+      const targetWaterHeight = height * fillRatio;
+      const waterTop = height - targetWaterHeight;
+
+      // Draw Liquid Gradient
+      const grad = ctx.createLinearGradient(0, waterTop, 0, height);
+      grad.addColorStop(0, 'rgba(14, 165, 233, 0.7)');
+      grad.addColorStop(1, 'rgba(3, 105, 161, 0.95)');
+
+      ctx.beginPath();
+      ctx.moveTo(0, height);
+
+      // Wave Sine Surface
+      for (let x = 0; x <= width; x += 5) {
+        const y = waterTop + Math.sin(x * 0.04 + waveOffset) * 4;
+        ctx.lineTo(x, y);
+      }
+
+      ctx.lineTo(width, height);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Top Wave Highlight
+      ctx.beginPath();
+      for (let x = 0; x <= width; x += 5) {
+        const y = waterTop + Math.sin(x * 0.04 + waveOffset) * 4;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = 'rgba(186, 230, 253, 0.8)';
+      ctx.strokeWidth = 2;
+      ctx.stroke();
+    }
+
+    function renderOscilloscope() {
+      const canvas = document.getElementById('scopeCanvas');
+      if (!canvas || scopeHistory.length === 0) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = canvas.clientWidth;
+      const h = canvas.height = canvas.clientHeight;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid Lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let y = 0; y < h; y += 20) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
+
+      const step = w / maxScopePoints;
+
+      // Draw Q0 (Bit 0) in green, Level in blue
+      ctx.beginPath();
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
+
+      scopeHistory.forEach((pt, i) => {
+        const x = i * step;
+        const y = h - 10 - (pt[4] / 9) * (h - 20); // Level signal
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Draw Q0 bit digital signal
+      ctx.beginPath();
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 1.5;
+
+      scopeHistory.forEach((pt, i) => {
+        const x = i * step;
+        const bitVal = pt[3]; // Q0
+        const y = h - 15 - bitVal * 25;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+  </script>
+</body>
+</html>
